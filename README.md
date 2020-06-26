@@ -14,5 +14,3 @@ For specified observer date/time and location (Geodetic: longitude/latitude), fo
   - Distance
   - Age
   - Moon illumination (percentage)
-  - Moon position angle of axis, bright limb angle and paralactic angle
-  - Moon phase
