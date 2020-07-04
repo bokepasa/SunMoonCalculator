@@ -1,4 +1,4 @@
-[![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)]
+![license](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)
 
 # SunMoonCalculator
 A very simple Sun/Moon calculator without using JPARSEC library.
