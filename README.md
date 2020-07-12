@@ -7,12 +7,14 @@ This is a Python port of the excellent [ephemerides (in Java)](http://conga.oan.
 
 For specified observer date/time and location (Geodetic: longitude/latitude), following information is calculated:
 - **Sun**
-  - Rise, set, noon (transit) time
-  - Azimuth, elevation and transit elevation angles
-  - Distance
+  - Rise, set, noon (transit) time.
+  - Azimuth, elevation and transit elevation angles.
+  - Distance.
 - **Moon**
-  - Rise, set, transit time
-  - Azimuth, elevation and transit elevation angles
-  - Distance
-  - Age
-  - Moon illumination (percentage)
+  - Rise, set, transit time.
+  - Azimuth, elevation and transit elevation angles.
+  - Distance.
+  - Age.
+  - Moon illumination (percentage).
+  - Moon Phase.
+  
