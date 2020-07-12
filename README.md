@@ -16,5 +16,5 @@ For specified observer date/time and location (Geodetic: longitude/latitude), fo
   - Distance.
   - Age.
   - Moon illumination (percentage).
-  - Moon Phase.
+  - Moon phase.
   
