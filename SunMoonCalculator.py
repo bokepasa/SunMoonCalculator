@@ -28,6 +28,15 @@
 #################################################################################################################################
 # A very simple yet accurate Sun/Moon calculator without using JPARSEC library.
 # @author T. Alonso Albi - OAN (Spain), email t.alonso@oan.es
+# @version June 15, 2020 (more terms for Sun, equinoxes/solstices methods revised to improve accuracy and performance)
+# @version June 12, 2020 (added planetary ephemerides from another class, better performance)
+# *** CODE PARTIALLY REWRITTEN, PLEASE UPDATE EVERYTHING ***
+# *** INCLUDING THE SECTIONS BELOW FOR A CORRECT VERSION ***
+# @version June 3, 2020 (fix rise/set problem for high latitudes, return azimuth and elevation even in geocentric computations)
+# @version November 26, 2018 (two new methods getCulminationTime and getAzimuthTime)
+# @version November 6, 2018 (better accuracy for Moon, angular radius in ephemeris, cosmetic improvements)
+# @version July 24, 2018 (new class to hold results, illumination phase, moon phases, equinoxes and solstices)
+# @version May 25, 2017 (fixed nutation correction and moon age, better accuracy in Moon)
 #################################################################################################################################
 
 import sys
