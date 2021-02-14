@@ -28,6 +28,8 @@
 #################################################################################################################################
 # A very simple yet accurate Sun/Moon calculator without using JPARSEC library.
 # @author T. Alonso Albi - OAN (Spain), email t.alonso@oan.es
+# @version August 7, 2020 (forgot to add equation of equinoxes to lst, affects 1s at most to rise/set/transit times)
+# @version July 1, 2020 (improved aberration in getSun, illumination phase for planets fixed, refraction with ambient P/T and extensible to radio wavelengths)
 # @version June 15, 2020 (more terms for Sun, equinoxes/solstices methods revised to improve accuracy and performance)
 # @version June 12, 2020 (added planetary ephemerides from another class, better performance)
 # *** CODE PARTIALLY REWRITTEN, PLEASE UPDATE EVERYTHING ***
@@ -262,14 +264,14 @@ class SunMoonCalculator:
         gmst = (((((-6.2e-6 * T0) + 9.3104e-2) * T0) + 8640184.812866) * T0) + 24110.54841
         msday = 1.0 + (((((-1.86e-5 * T0) + 0.186208) * T0) + 8640184.812866) / (self.SECONDS_PER_DAY * self.JULIAN_DAYS_PER_CENTURY))
         gmst = (gmst + msday * secs) * (15.0 / 3600.0) * DEG_TO_RAD
-        self.lst = gmst + self.obsLon
+        self.lst = self.normalizeRadians(gmst + obsLon + self.nutLon * math.cos(self.meanObliquity + self.nutObl))
 
     # ** Calculates everything for the Sun and the Moon.
     def calcSunAndMoon(self):
         jd = self.jd_UT
 
         # First the Sun
-        self.sun = self.doCalc(self.getSun(), False)
+        self.sun = self.doCalc(self.getSun(),False)
 
         niter = 15 # // Number of iterations to get accurate rise/set/transit times
         self.sun.rise = self.obtainAccurateRiseSetTransit(self.sun.rise, self.EVENT.RISE, niter, True)
@@ -280,11 +282,11 @@ class SunMoonCalculator:
         else:
             #// Update Sun's maximum elevation
             self.setUTDate(self.sun.transit)
-            self.sun.transitElevation = self.doCalc(self.getSun(), False).transitElevation
+            self.sun.transitElevation = self.doCalc(self.getSun(),False).transitElevation
         
         # Now Moon
         self.setUTDate(jd)
-        self.moon = self.doCalc(self.getMoon(), False)
+        self.moon = self.doCalc(self.getMoon(),False)
         ma = self.moonAge
         #//niter = 15 #// Number of iterations to get accurate rise/set/transit times
         self.moon.rise = self.obtainAccurateRiseSetTransit(self.moon.rise, self.EVENT.RISE, niter, False)
@@ -295,7 +297,7 @@ class SunMoonCalculator:
         else: 
 	        #// Update Moon's maximum elevation
 	        self.setUTDate(self.moon.transit)
-	        self.moon.transitElevation = self.doCalc(self.getMoon(), False).transitElevation
+	        self.moon.transitElevation = self.doCalc(self.getMoon(),False).transitElevation
 
         self.setUTDate(jd)
         self.moonAge = ma
@@ -360,19 +362,29 @@ class SunMoonCalculator:
 
 
     def getSun(self):
-        L = 0.0 
+        L = 0.0
         R = 0.0
         t2 = self.t * 0.01
+        Lp = 0.0
+        deltat = 0.5
+        t2p = (self.t + deltat / self.JULIAN_DAYS_PER_CENTURY) * 0.01
+
         for i in range(len(self.sun_elements)):
             v = self.sun_elements[i][2] + self.sun_elements[i][3] * t2
             u = self.normalizeRadians(v)
             L = L + self.sun_elements[i][0] * math.sin(u)
             R = R + self.sun_elements[i][1] * math.cos(u)
+            vp = self.sun_elements[i][2] + self.sun_elements[i][3] * t2p
+            up = self.normalizeRadians(vp)
+            Lp = Lp + self.sun_elements[i][0] * math.sin(up)
+
         lon = self.normalizeRadians(4.9353929 + self.normalizeRadians(62833.196168 * t2) + L / 10000000.0) * RAD_TO_DEG
         sdistance = 1.0001026 + R / 10000000.0
 
-        # // Now subtract aberration. Note light-time is not corrected, negligible for Sun
-        lon += -.00569
+        # // Now subtract aberration.
+        dlon = ((Lp - L) / 10000000.0 + 62833.196168 * (t2p - t2)) / deltat
+        aberration = dlon * sdistance * 0.00577551833109
+        lon -= aberration * RAD_TO_DEG
 
         slongitude = lon * DEG_TO_RAD # apparent longitude (error<0.001 deg)
         slatitude = 0 # Sun's ecliptic latitude is always negligible
@@ -452,8 +464,8 @@ class SunMoonCalculator:
 
         array = [longitude, latitude, distance * self.EARTH_RADIUS / self.AU, math.atan(self.BODY.Moon.eqRadius / (distance * self.EARTH_RADIUS))]
 		
-        return array
-
+        return array 
+    
     #/**
 	# * Compute the position of the body.
 	# * @param pos Values for the ecliptic longitude, latitude, distance and so on from previous methods for the specific body.
@@ -581,7 +593,7 @@ class SunMoonCalculator:
             out = self.Ephemeris(azi, alt, rise, set, transit, transit_alt, self.normalizeRadians(ra), dec, dist, pos[0], pos[1], pos[3])
 
             return out
-    
+        
     #/**
 	# * Corrects geometric elevation for refraction if it is greater than -3 degrees.
 	# * @param alt Geometric elevation in radians.
@@ -590,9 +602,14 @@ class SunMoonCalculator:
     def refraction(self,alt):
         if (alt <= -3 * DEG_TO_RAD):
             return alt
-        r = 0.016667 * DEG_TO_RAD * abs(math.tan(self.PI_OVER_TWO - (alt * RAD_TO_DEG +  7.31 / (alt * RAD_TO_DEG + 4.4)) * DEG_TO_RAD))
-        refr = r * ( 0.28 * 1010 / (10 + 273.0)) #// Assuming pressure of 1010 mb and T = 10 C
-        return min(alt + refr, self.PI_OVER_TWO) #// This is not accurate, but acceptable
+        Ps = 1010 # Pressure in mb
+        Ts = 10 + 273.15; # Temperature in K
+        altDeg = alt * RAD_TO_DEG
+
+        # Bennet 1982 formulae for optical wavelengths, do the job but not accurate close to horizon
+        r = DEG_TO_RAD * abs(math.tan(self.PI_OVER_TWO - (altDeg + 7.31 / (altDeg + 4.4)) * DEG_TO_RAD)) / 60.0
+        refr = r * (0.28 * Ps / Ts)
+        return min(alt + refr, self.PI_OVER_TWO)
     
     #/**
 	# * Sets the illumination phase field for the provided body. 
@@ -602,7 +619,14 @@ class SunMoonCalculator:
     def getIlluminationPhase(self,body):
         dlon = body.rightAscension - self.sun.rightAscension
         cosElong = (math.sin(self.sun.declination) * math.sin(body.declination) + math.cos(self.sun.declination) * math.cos(body.declination) * math.cos(dlon))
-        body.illuminationPhase = 100 * (1.0 - cosElong) * 0.5
+        
+        RE = self.sun.distance
+        RO = body.distance
+        #Use elongation cosine as trick to solve the rectangle and get RP (distance body - sun)
+        RP = math.sqrt(-(cosElong * 2.0 * RE * RO - RE * RE - RO * RO))
+
+        DPH = ((RP * RP + RO * RO - RE * RE) / (2.0 * RP * RO))
+        body.illuminationPhase = 100 * (1.0 + DPH) * 0.5
 
     #/**
 	# * Transforms a common date into a Julian day number (counting days from Jan 1, 4713 B.C. at noon).
@@ -747,9 +771,9 @@ class SunMoonCalculator:
             out = self.Ephemeris
             out = None
             if (sun):
-                out = self.doCalc(self.getSun(), False)
+                out = self.doCalc(self.getSun(),False)
             else:
-                out = self.doCalc(self.getMoon(), False)
+                out = self.doCalc(self.getMoon(),False)
             val = out.rise
             if (index == self.EVENT.SET): 
                 val = out.set
@@ -796,10 +820,10 @@ class SunMoonCalculator:
 
 try:
     #Time in UT !!!      
-    year = 2020
-    month = 7
-    day = 12
-    h = 9
+    year = 2021
+    month = 2
+    day = 14
+    h = 18
     m = 0
     s = 0
 
