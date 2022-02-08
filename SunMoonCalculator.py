@@ -528,7 +528,7 @@ class SunMoonCalculator:
         azi = math.pi + math.atan2(azy, azx) #// 0 = north
 		
         if (geocentric==True): 
-            return self.Ephemeris(azi, alt, -1, -1, -1, -1, normalizeRadians(ra), dec, dist, pos[0], pos[1], pos[3])
+            return self.Ephemeris(azi, alt, -1, -1, -1, -1, self.normalizeRadians(ra), dec, dist, pos[0], pos[1], pos[3])
 
 		# Get apparent elevation
         alt = self.refraction(alt)
