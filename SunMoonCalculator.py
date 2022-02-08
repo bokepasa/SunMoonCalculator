@@ -292,12 +292,13 @@ class SunMoonCalculator:
         self.moon.rise = self.obtainAccurateRiseSetTransit(self.moon.rise, self.EVENT.RISE, niter, False)
         self.moon.set = self.obtainAccurateRiseSetTransit(self.moon.set, self.EVENT.SET, niter, False)
         self.moon.transit = self.obtainAccurateRiseSetTransit(self.moon.transit, self.EVENT.TRANSIT, niter, False)
+
+
         if (self.moon.transit == -1):
-	        self.moon.transitElevation = 0
-        else: 
-	        #// Update Moon's maximum elevation
-	        self.setUTDate(self.moon.transit)
-	        self.moon.transitElevation = self.doCalc(self.getMoon(),False).transitElevation
+            self.moon.transitElevation = 0
+        else:
+            self.setUTDate(self.moon.transit)
+            self.moon.transitElevation = self.doCalc(self.getMoon(),False).transitElevation
 
         self.setUTDate(jd)
         self.moonAge = ma
@@ -878,6 +879,3 @@ try:
 except:
     print("Unexpected error:", sys.exc_info()[0])
     raise
-
-
-	
