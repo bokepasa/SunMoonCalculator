@@ -1,6 +1,6 @@
 #MIT License
 
-#Copyright (c) 2020 Leandro Castro Pérez
+#Copyright (c) 2022 Leandro Castro Pérez
 
 #Permission is hereby granted, free of charge, to any person obtaining a copy
 #of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +28,8 @@
 #################################################################################################################################
 # A very simple yet accurate Sun/Moon calculator without using JPARSEC library.
 # @author T. Alonso Albi - OAN (Spain), email t.alonso@oan.es
+# @version January 11, 2021 (fixed an error with Julian day computation, refraction iteration improved)
+# @version November 10, 2020 (Better refraction correction, still with Bennet formula. Complete code including accurate lunar position and topocentric correction, lunar angles and phases, equinoxes/solstices)
 # @version August 7, 2020 (forgot to add equation of equinoxes to lst, affects 1s at most to rise/set/transit times)
 # @version July 1, 2020 (improved aberration in getSun, illumination phase for planets fixed, refraction with ambient P/T and extensible to radio wavelengths)
 # @version June 15, 2020 (more terms for Sun, equinoxes/solstices methods revised to improve accuracy and performance)
@@ -149,6 +151,7 @@ class SunMoonCalculator:
     t = 0
     obsLon = 0 
     obsLat = 0
+    obsAlt = 0
     TTminusUT = 0
     twilight = TWILIGHT.HORIZON_34arcmin
     nutLon = 0 
@@ -200,7 +203,7 @@ class SunMoonCalculator:
     moonAge=None
 
 
-    def __init__(self, year, month, day, hour, minute, second, obsLon, obsLat):
+    def __init__(self, year, month, day, hour, minute, second, obsLon, obsLat, obsAlt):
         self.year = year
         self.month = month
         self.day = day
@@ -209,6 +212,7 @@ class SunMoonCalculator:
         self.second = second
         self.obsLon = obsLon
         self.obsLat = obsLat
+        self.obsAlt = obsAlt
 
         jd = self.toJulianDay(self.year,self.month,self.day, self.hour, self.minute,self.second)
         TTminusUT = 0.0
@@ -395,27 +399,42 @@ class SunMoonCalculator:
         return array
     
     def getMoon(self):
-        t = self.t
-        #// MOON PARAMETERS (Formulae from "Calendrical Calculations")
-        phase = self.normalizeRadians((297.8502042 + 445267.1115168 * t - 0.00163 * t * t + t * t * t / 538841 - t * t * t * t / 65194000) * DEG_TO_RAD)
+        # Implementation following P. Duffet's MOON program
+        self.td = self.t + 1 
+        td2 = self.t * self.t
 
-		#// Anomalistic phase
-        anomaly = (134.9634114 + 477198.8676313 * t + .008997 * t * t + t * t * t / 69699 - t * t * t * t / 14712000)
-        anomaly = anomaly * DEG_TO_RAD
-
-		#// Degrees from ascending node
-        node = (93.2720993 + 483202.0175273 * t - 0.0034029 * t * t - t * t * t / 3526000 + t * t * t * t / 863310000)
-        node = node * DEG_TO_RAD
-
-        E = 1.0 - (.002495 + 7.52E-06 * (t + 1.0)) * (t + 1.0)
-
-		#// Solar anomaly
-        sanomaly = (357.5291 + 35999.0503 * t - .0001559 * t * t - 4.8E-07 * t * t * t) * DEG_TO_RAD
+        qd = self.td * self.JULIAN_DAYS_PER_CENTURY * 360.0
+        
+        M1 = qd / 2.732158213E1 
+        M2 = qd / 3.652596407E2 
+        M3 = qd / 2.755455094E1
+        M4 = qd / 2.953058868E1 
+        M5 = qd / 2.721222039E1
+        M6 = qd / 6.798363307E3
+        
+        l = self.normalizeRadians((2.70434164E2 + M1 - (1.133E-3 - 1.9E-6 * self.td) * td2) * DEG_TO_RAD)
+        sanomaly = self.normalizeRadians((3.58475833E2 + M2 - (1.5E-4 + 3.3E-6 * self.td) * td2) * DEG_TO_RAD)
+        anomaly = self.normalizeRadians((2.96104608E2 + M3 + (9.192E-3 + 1.44E-5 * self.td) * td2) * DEG_TO_RAD)
+        phase = self.normalizeRadians((3.50737486E2 + M4 - (1.436E-3 - 1.9E-6 * self.td) * td2) * DEG_TO_RAD)
+        node = self.normalizeRadians((11.250889 + M5 - (3.211E-3 + 3E-7 * self.td) * td2) * DEG_TO_RAD)
+        NA = self.normalizeRadians((2.59183275E2 - M6 + (2.078E-3 + 2.2E-6 * self.td) * td2) * DEG_TO_RAD)
+        A = DEG_TO_RAD * (51.2 + 20.2 * self.td)
+        S1 = math.sin(A) 
+        S2 = math.sin(NA)
+        B = 346.56 + (132.87 - 9.1731E-3 * self.td) * self.td
+        S3 = 3.964E-3 * math.sin(DEG_TO_RAD * B)
+        C = NA + DEG_TO_RAD * (275.05 - 2.3 * self.td)
+        S4 = math.sin(C)
+        l = l * RAD_TO_DEG + (2.33E-4 * S1 + S3 + 1.964E-3 * S2)
+        sanomaly = sanomaly - (1.778E-3 * S1) * DEG_TO_RAD
+        anomaly = anomaly + (8.17E-4 * S1 + S3 + 2.541E-3 * S2) * DEG_TO_RAD
+        node = node + (S3 - 2.4691E-2 * S2 - 4.328E-3 * S4) * DEG_TO_RAD
+        phase = phase + (2.011E-3 * S1 + S3 + 1.964E-3 * S2) * DEG_TO_RAD
+        E = 1 - (2.495E-3 + 7.52E-6 * self.td) * self.td 
+        E2 = E * E
 
 		#// Now longitude, with the three main correcting terms of evection,
 		#// variation, and equation of year, plus other terms (error<0.01 deg)
-		#// P. Duffet's MOON program taken as reference
-        l = (218.31664563 + 481267.8811958 * t - .00146639 * t * t + t * t * t / 540135.03 - t * t * t * t / 65193770.4)
         l += 6.28875 * math.sin(anomaly) + 1.274018 * math.sin(2 * phase - anomaly) + .658309 * math.sin(2 * phase)
         l +=  0.213616 * math.sin(2 * anomaly) - E * .185596 * math.sin(sanomaly) - 0.114336 * math.sin(2 * node)
         l += .058793 * math.sin(2 * phase - 2 * anomaly) + .057212 * E * math.sin(2 * phase - anomaly - sanomaly) + .05332 * math.sin(2 * phase + anomaly)
@@ -430,6 +449,15 @@ class SunMoonCalculator:
         l += -E * E * 2.079E-3 * math.sin(2*sanomaly) + E * E * 2.059E-3 * math.sin(2*(phase-sanomaly)-anomaly)
         l += -1.773E-3 * math.sin(anomaly+2*(phase-node)) - 1.595E-3 * math.sin(2*(node+phase))
         l += E * 1.22E-3 * math.sin(4*phase-sanomaly-anomaly) - 1.11E-3 * math.sin(2*(anomaly+node))
+        l += 8.92E-4 * math.sin(anomaly - 3 * phase) - E * 8.11E-4 * math.sin(sanomaly + anomaly + 2 * phase)
+        l += E * 7.61E-4 * math.sin(4 * phase - sanomaly - 2 * anomaly)
+        l += E2 * 7.04E-4 * math.sin(anomaly - 2 * (sanomaly + phase))
+        l += E * 6.93E-4 * math.sin(sanomaly - 2 * (anomaly - phase))
+        l += E * 5.98E-4 * math.sin(2 * (phase - node) - sanomaly)
+        l += 5.5E-4 * math.sin(anomaly + 4 * phase) + 5.38E-4 * math.sin(4 * anomaly)
+        l += E * 5.21E-4 * math.sin(4 * phase - sanomaly) + 4.86E-4 * math.sin(2 * anomaly - phase)
+        l += E2 * 7.17E-4 * math.sin(anomaly - 2 * sanomaly)
+
         longitude = l * DEG_TO_RAD
 				
         Psin = 29.530588853
@@ -441,15 +469,24 @@ class SunMoonCalculator:
             self.moonAge = phase * Psin / self.TWO_PI			
 		
 		#// Now Moon parallax
-        parallax = .950724 + .051818 * math.cos(anomaly) + .009531 * math.cos(2 * phase - anomaly)
-        parallax += .007843 * math.cos(2 * phase) + .002824 * math.cos(2 * anomaly)
-        parallax += 0.000857 * math.cos(2 * phase + anomaly) + E * .000533 * math.cos(2 * phase - sanomaly)
-        parallax += E * .000401 * math.cos(2 * phase - anomaly - sanomaly) + E * .00032 * math.cos(anomaly - sanomaly) - .000271 * math.cos(phase)
-        parallax += -E * .000264 * math.cos(sanomaly + anomaly) - .000198 * math.cos(2 * node - anomaly)
-        parallax += 1.73E-4 * math.cos(3 * anomaly) + 1.67E-4 * math.cos(4*phase-anomaly)
-
-		#// So Moon distance in Earth radii is, more or less,
-        distance = 1.0 / math.sin(parallax * DEG_TO_RAD)
+        p = .950724 + .051818 * math.cos(anomaly) + .009531 * math.cos(2 * phase - anomaly)
+        p += .007843 * math.cos(2 * phase) + .002824 * math.cos(2 * anomaly)
+        p += 0.000857 * math.cos(2 * phase + anomaly) + E * .000533 * math.cos(2 * phase - sanomaly)
+        p += E * .000401 * math.cos(2 * phase - anomaly - sanomaly) + E * .00032 * math.cos(anomaly - sanomaly) - .000271 * math.cos(phase)
+        p += -E * .000264 * math.cos(sanomaly + anomaly) - .000198 * math.cos(2 * node - anomaly)
+        p += 1.73E-4 * math.cos(3 * anomaly) + 1.67E-4 * math.cos(4*phase-anomaly)
+        p += -E * 1.11E-4 * math.cos(sanomaly) + 1.03E-4 * math.cos(4 * phase - 2 * anomaly)
+        p += -8.4E-5 * math.cos(2 * anomaly - 2 * phase) - E * 8.3E-5 * math.cos(2 * phase + sanomaly)
+        p += 7.9E-5 * math.cos(2 * phase + 2 * anomaly) + 7.2E-5 * math.cos(4 * phase)
+        p += E * 6.4E-5 * math.cos(2 * phase - sanomaly + anomaly) - E * 6.3E-5 * math.cos(2 * phase + sanomaly - anomaly)
+        p += E * 4.1E-5 * math.cos(sanomaly + phase) + E * 3.5E-5 * math.cos(2 * anomaly - sanomaly)
+        p += -3.3E-5 * math.cos(3 * anomaly - 2 * phase) - 3E-5 * math.cos(anomaly + phase)
+        p += -2.9E-5 * math.cos(2 * (node - phase)) - E * 2.9E-5 * math.cos(2 * anomaly + sanomaly)
+        p += E2 * 2.6E-5 * math.cos(2 * (phase - sanomaly)) - 2.3E-5 * math.cos(2 * (node - phase) + anomaly)
+        p += E * 1.9E-5 * math.cos(4 * phase - sanomaly - anomaly)
+        
+        #// So Moon distance in Earth radii is, more or less,
+        distance = 1.0 / math.sin(p * DEG_TO_RAD)
 
 		#// Ecliptic latitude with nodal phase (error<0.01 deg)
         l = 5.128189 * math.sin(node) + 0.280606 * math.sin(node + anomaly) + 0.277693 * math.sin(anomaly - node)
@@ -461,7 +498,25 @@ class SunMoonCalculator:
         l += E * 2.472E-3 * math.sin(2 * phase + node - sanomaly - anomaly)
         l += E * 2.222E-3 * math.sin(2 * phase + node - sanomaly)
         l += E * 2.072E-3 * math.sin(2 * phase - node - sanomaly - anomaly)
-        latitude = l * DEG_TO_RAD
+        l += E * 1.877E-3 * math.sin(node - sanomaly + anomaly) + 1.828E-3 * math.sin(4 * phase - node - anomaly)
+        l += -E * 1.803E-3 * math.sin(node + sanomaly) - 1.75E-3 * math.sin(3 * node)
+        l += E * 1.57E-3 * math.sin(anomaly - sanomaly - node) - 1.487E-3 * math.sin(node + phase)
+        l += -E * 1.481E-3 * math.sin(node + sanomaly + anomaly) + E * 1.417E-3 * math.sin(node - sanomaly - anomaly)
+        l += E * 1.35E-3 * math.sin(node - sanomaly) + 1.33E-3 * math.sin(node - phase)
+        l += 1.106E-3 * math.sin(node + 3 * anomaly) + 1.02E-3 * math.sin(4 * phase - node)
+        l += 8.33E-4 * math.sin(node + 4 * phase - anomaly) + 7.81E-4 * math.sin(anomaly - 3 * node)
+        l += 6.7E-4 * math.sin(node + 4 * phase - 2 * anomaly) + 6.06E-4 * math.sin(2 * phase - 3 * node)
+        l += 5.97E-4 * math.sin(2 * (phase + anomaly) - node)
+        l += E * 4.92E-4 * math.sin(2 * phase + anomaly - sanomaly - node) + 4.5E-4 * math.sin(2 * (anomaly - phase) - node)
+        l += 4.39E-4 * math.sin(3 * anomaly - node) + 4.23E-4 * math.sin(node + 2 * (phase + anomaly))
+        l += 4.22E-4 * math.sin(2 * phase - node - 3 * anomaly) - E * 3.67E-4 * math.sin(sanomaly + node + 2 * phase - anomaly)
+        l += -E * 3.53E-4 * math.sin(sanomaly + node + 2 * phase) + 3.31E-4 * math.sin(node + 4 * phase)
+        l += E * 3.17E-4 * math.sin(2 * phase + node - sanomaly + anomaly)
+        l += E2 * 3.06E-4 * math.sin(2 * (phase - sanomaly) - node) - 2.83E-4 * math.sin(anomaly + 3 * node)
+        W1 = 4.664E-4 * math.cos(NA)
+        W2 = 7.54E-5 * math.cos(C)
+        
+        latitude = l * DEG_TO_RAD * (1.0 - W1 - W2)
 
         array = [longitude, latitude, distance * self.EARTH_RADIUS / self.AU, math.atan(self.BODY.Moon.eqRadius / (distance * self.EARTH_RADIUS))]
 		
@@ -490,20 +545,22 @@ class SunMoonCalculator:
         y = tmp
 
         #// Obtain topocentric rectangular coordinates
-        sinLat = math.sin(self.obsLat)
-        cosLat = math.cos(self.obsLat)
-        if (geocentric==True):
-            radiusAU =  0 
-        else:
-            radiusAU = self.EARTH_RADIUS / self.AU
+        xtopo = x
+        ytopo = y
+        ztopo = z
 
-        correction = np.array([radiusAU * cosLat * math.cos(self.lst), 
-                radiusAU * cosLat * math.sin(self.lst), radiusAU * sinLat])
-        
+        if (geocentric==False):
+            geocLat = (self.obsLat - .1925 * math.sin(2 * self.obsLat) * DEG_TO_RAD)
+            sinLat = math.sin(geocLat) 
+            cosLat = math.cos(geocLat) 
+            geocR = 1.0 - math.pow(math.sin(obsLat), 2) / 298.257
+            radiusAU = (geocR * self.EARTH_RADIUS + self.obsAlt * 0.001) / self.AU
+            correction = np.array([radiusAU * cosLat * math.cos(self.lst), radiusAU * cosLat * math.sin(self.lst), radiusAU * sinLat])
             
-        xtopo = x - correction[0]
-        ytopo = y - correction[1]
-        ztopo = z - correction[2]
+            xtopo -= correction[0]
+            ytopo -= correction[1]
+            ztopo -= correction[2]
+		
 
         # Obtain topocentric equatorial coordinates
         ra = 0.0
@@ -519,6 +576,8 @@ class SunMoonCalculator:
         angh = self.lst - ra
         
         # Obtain azimuth and geometric alt
+        sinLat = math.sin(self.obsLat)
+        cosLat = math.cos(self.obsLat)
         sinDec = math.sin(dec) 
         cosDec = math.cos(dec)
         h = sinLat * sinDec + cosLat * cosDec * math.cos(angh)
@@ -602,15 +661,56 @@ class SunMoonCalculator:
     def refraction(self,alt):
         if (alt <= -3 * DEG_TO_RAD):
             return alt
-        Ps = 1010 # Pressure in mb
-        Ts = 10 + 273.15; # Temperature in K
+        
+        altIn = alt
+        niter = 0
+        prevAlt = alt
+
+        while(True):
+            altOut = self.computeGeometricElevation(alt)
+            alt = altIn - (altOut-alt)
+            niter= niter + 1
+            if (abs(prevAlt-alt) < 0.001 * DEG_TO_RAD):
+                break
+            prevAlt = alt
+            if (niter < 8):
+                break
+
+        return (alt)
+    
+    # /**
+	#  * Compute geometric elevation from apparent elevation. Note ephemerides
+	#  * calculates geometric elevation, so an inversion is required, something 
+	#  * achieved in method {@linkplain #refraction(double)} by iteration.
+	#  * @param alt Apparent elevation in radians.
+	#  * @return Geometric elevation in radians.
+	#  */
+	
+    def computeGeometricElevation(self,alt):
+        Ps = 1010 #// Pressure in mb
+        Ts = 10 + 273.15 #// Temperature in K
         altDeg = alt * RAD_TO_DEG
 
-        # Bennet 1982 formulae for optical wavelengths, do the job but not accurate close to horizon
+		# // Bennet 1982 formulae for optical wavelengths, do the job but not accurate close to horizon
+		# // Yan 1996 formulae would be better but with much more lines of code
         r = DEG_TO_RAD * abs(math.tan(self.PI_OVER_TWO - (altDeg + 7.31 / (altDeg + 4.4)) * DEG_TO_RAD)) / 60.0
         refr = r * (0.28 * Ps / Ts)
-        return min(alt + refr, self.PI_OVER_TWO)
+		
+        return min(alt - refr, self.PI_OVER_TWO)
+
+		# # // Bennet formulae adapted to radio wavelenths. Use this for position in radio wavelengths
+		# # // Reference for some values: http://icts-yebes.oan.es/reports/doc/IT-OAN-2003-2.pdf (Yebes 40m radiotelescope)
+        # Hs = 20 #// Humidity %
+		# #// Water vapor saturation pressure following Crane (1976), as in the ALMA memorandum
+        # esat = 6.105 * math.exp(25.22 * (Ts - 273.15) / Ts) + math.pow(Ts / 273.15, -5.31)
+        # Pw = Hs * esat / 100.0
     
+        # R0 = (16.01 / Ts) * (Ps - 0.072 * Pw + 4831 * Pw / Ts) * self.ARCSEC_TO_RAD
+        # refr = R0 * abs(math.tan(self.PI_OVER_TWO - (altDeg + 5.9 / (altDeg + 2.5)) * DEG_TO_RAD))
+        
+        # return min(alt - refr, self.PI_OVER_TWO)
+		
+	
     #/**
 	# * Sets the illumination phase field for the provided body. 
 	# * Sun position must be computed before calling this method.
@@ -645,7 +745,7 @@ class SunMoonCalculator:
         julian = False
         jd = 0
     
-        if (year < 1582 or (year == 1582 and month <= 10) or (year == 1582 and month == 10 and day < 15)):
+        if (year < 1582 or (year == 1582 and month < 10) or (year == 1582 and month == 10 and day < 15)):
             julian=True
         D = day
         M = month
@@ -662,9 +762,6 @@ class SunMoonCalculator:
         dayFraction = (h + (m + (s / 60.0)) / 60.0) / 24.0
         jd = dayFraction + (int) (365.25 * (Y + 4716)) + (int) (30.6001 * (M + 1)) + D + B - 1524.5
 
-        if (jd < 2299160.0 and jd >= 2299150.0):
-            print("invalid julian day " + jd + ". This date does not exist.")
-
         return jd
     
     #/**
@@ -673,10 +770,7 @@ class SunMoonCalculator:
 	# * @return A set of integers: year, month, day, hour, minute, second.
 	# * @throws Exception If the input date does not exists.
 	# */
-    def getDate(self,jd):
-        if (jd < 2299160.0 and jd >= 2299150.0):
-            print("invalid julian day " + jd + ". This date does not exist.")
-        
+    def getDate(self,jd):       
         #// The conversion formulas are from Meeus,
         # Chapter 7
         Z = math.floor(jd + 0.5)
@@ -821,18 +915,19 @@ class SunMoonCalculator:
 try:
     #Time in UT !!!      
     year = 2021
-    month = 3
-    day = 1
-    h = 21
+    month = 6
+    day = 9
+    h = 18
     m = 0
     s = 0
 
     #ADD LONGITUDE-LATITUDE
-    obsLon = math.radians(LONGITUDE) #lon is negative to the west.
-    obsLat = math.radians(LATITUDE)
+    obsLon = math.radians(-4) #lon is negative to the west.
+    obsLat = math.radians(40)
+    obsAlt = 0 # meters
 
 
-    smc = SunMoonCalculator(year, month, day, h, m, s, obsLon, obsLat)
+    smc = SunMoonCalculator(year, month, day, h, m, s, obsLon, obsLat, obsAlt)
     smc.calcSunAndMoon()
     degSymbol = "\u00b0"
     print("###SUN###")
@@ -875,6 +970,14 @@ try:
     for s in smc.MOONPHASE:
         print(" "+s.value[0]+"  "+smc.getDateAsString(smc.getMoonPhaseTime(s.value[1])))
 
+    
+    # // Expected accuracy over 1800 - 2200:
+	# // - Sun: 0.001 deg in RA/DEC, 0.003 deg or 10 arcsec in Az/El. 
+	# //        <1s in rise/set/transit times. 1 min in Equinoxes/Solstices
+	# //        Can be used over 6 millenia around year 2000 with a similar accuracy.
+	# // - Mon: 0.005 deg or better. 30 km in distance
+	# //        2s or better in rise/set/transit times. 1 minute in lunar phases.
+	# //        Can be used between 1000 A.D. - 3000 A.D. with an accuracy around 0.1 deg.
 
 except:
     print("Unexpected error:", sys.exc_info()[0])
